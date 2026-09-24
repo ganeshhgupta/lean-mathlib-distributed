@@ -30,6 +30,10 @@ def health():
 def debug():
     probes = [
         ("lean_version", ["lean", "--version"]),
+        ("net_github", ["curl", "-s", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", "https://github.com"]),
+        ("net_lean_releases", ["curl", "-s", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", "https://releases.lean-lang.org"]),
+        ("net_dns_github", ["getent", "hosts", "github.com"]),
+        ("env_vars", ["sh", "-c", "env | grep -E 'ELAN|LEAN|PATH' | sort"]),
         ("lake_env_lean_version", ["lake", "env", "lean", "--version"]),
         ("lake_build_noop", ["lake", "build", "ShardImports"]),
     ]
