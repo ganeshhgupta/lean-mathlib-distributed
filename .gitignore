@@ -1,0 +1,8 @@
+.lake/
+*.olean
+*.ilean
+scratch_*.lean
+__pycache__/
+*.pyc
+.venv/
+.env

@@ -1,0 +1,31 @@
+# Dockerfile (generated - edit scripts/templates/Dockerfile.tmpl, not this file)
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl git build-essential python3 python3-pip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV ELAN_HOME=/root/.elan
+ENV PATH=$ELAN_HOME/bin:$PATH
+RUN curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf \
+    | sh -s -- -y --default-toolchain none
+
+WORKDIR /app
+COPY lean-toolchain lakefile.toml ./
+RUN lake update
+
+COPY ShardImports.lean shard_modules.txt ./
+
+# mathlib publishes a precompiled .olean cache per module; fetch only the
+# modules this shard actually imports instead of the whole ~12GB library.
+# (documented as `lake exe cache get <ModuleName> ...` in mathlib4's README)
+RUN xargs -a shard_modules.txt lake exe cache get
+
+RUN lake build ShardImports
+
+COPY server.py requirements.txt ./
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+ENV SHARD_ID=numbertheory
+EXPOSE 8000
+CMD ["python3", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

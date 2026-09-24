@@ -1,0 +1,64 @@
+{
+  "common_namespaces": [
+    "Mathlib.Init",
+    "Mathlib.Logic",
+    "Mathlib.Order",
+    "Mathlib.Data",
+    "Mathlib.Control",
+    "Mathlib.Tactic",
+    "Mathlib.Util",
+    "Mathlib.Basic",
+    "Mathlib.Lean"
+  ],
+  "shards": [
+    {
+      "id": "algebra",
+      "namespaces": [
+        "Mathlib.Algebra",
+        "Mathlib.GroupTheory",
+        "Mathlib.RingTheory",
+        "Mathlib.FieldTheory",
+        "Mathlib.LinearAlgebra",
+        "Mathlib.RepresentationTheory"
+      ]
+    },
+    {
+      "id": "analysis",
+      "namespaces": [
+        "Mathlib.Analysis",
+        "Mathlib.MeasureTheory",
+        "Mathlib.Probability",
+        "Mathlib.Dynamics"
+      ]
+    },
+    {
+      "id": "numbertheory",
+      "namespaces": [
+        "Mathlib.NumberTheory",
+        "Mathlib.Combinatorics",
+        "Mathlib.InformationTheory",
+        "Mathlib.Computability",
+        "Mathlib.Deprecated",
+        "Mathlib.Testing"
+      ]
+    },
+    {
+      "id": "topology",
+      "namespaces": [
+        "Mathlib.Topology",
+        "Mathlib.AlgebraicTopology",
+        "Mathlib.Geometry",
+        "Mathlib.AlgebraicGeometry",
+        "Mathlib.Condensed"
+      ]
+    },
+    {
+      "id": "categorytheory",
+      "namespaces": [
+        "Mathlib.CategoryTheory",
+        "Mathlib.SetTheory",
+        "Mathlib.ModelTheory"
+      ]
+    }
+  ]
+}

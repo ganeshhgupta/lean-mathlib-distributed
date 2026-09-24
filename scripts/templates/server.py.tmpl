@@ -1,0 +1,55 @@
+# server.py (generated - edit scripts/templates/server.py.tmpl, not this file)
+# Minimal Lean checker for this shard. Accepts a Lean source snippet, writes
+# it to a scratch file inside the shard's lake workspace (so `import Mathlib.*`
+# resolves against this shard's already-built ShardImports), runs `lake env
+# lean` on it, and returns whether it type-checked.
+import os
+import subprocess
+import tempfile
+import uuid
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+WORKSPACE = os.path.dirname(os.path.abspath(__file__))
+SHARD_ID = os.environ.get("SHARD_ID", "unknown")
+
+
+class CheckRequest(BaseModel):
+    source: str
+    timeout_seconds: int = 60
+
+
+@app.get("/health")
+def health():
+    return {"ok": True, "shard": SHARD_ID}
+
+
+@app.post("/check")
+def check(req: CheckRequest):
+    fname = f"scratch_{uuid.uuid4().hex}.lean"
+    fpath = os.path.join(WORKSPACE, fname)
+    try:
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(req.source)
+
+        proc = subprocess.run(
+            ["lake", "env", "lean", fpath],
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=req.timeout_seconds,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "shard": SHARD_ID,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+            "returncode": proc.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "shard": SHARD_ID, "error": "timeout"}
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)

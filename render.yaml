@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: lean-mathlib-router
+    env: docker
+    plan: free
+    region: oregon
+    rootDir: router
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # paste the Neon connection string in the Render dashboard
+
+  - type: web
+    name: lean-shard-algebra
+    env: docker
+    plan: free
+    region: oregon
+    rootDir: shards/algebra
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+
+  - type: web
+    name: lean-shard-analysis
+    env: docker
+    plan: free
+    region: oregon
+    rootDir: shards/analysis
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+
+  - type: web
+    name: lean-shard-numbertheory
+    env: docker
+    plan: free
+    region: oregon
+    rootDir: shards/numbertheory
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+
+  - type: web
+    name: lean-shard-topology
+    env: docker
+    plan: free
+    region: oregon
+    rootDir: shards/topology
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+
+  - type: web
+    name: lean-shard-categorytheory
+    env: docker
+    plan: free
+    region: oregon
+    rootDir: shards/categorytheory
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
