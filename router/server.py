@@ -27,7 +27,10 @@ SHARDS_JSON = json.loads((pathlib.Path(__file__).resolve().parent / "shards.json
 
 class ProveRequest(BaseModel):
     source: str
-    timeout_seconds: int = 60
+    # Confirmed on Render free tier: even a trivial goal against a single
+    # real mathlib import takes ~2m30s (CPU-throttled). Matches the shard
+    # default in scripts/templates/server.py.tmpl.
+    timeout_seconds: int = 280
 
 
 def extract_imports(source: str) -> list[str]:
