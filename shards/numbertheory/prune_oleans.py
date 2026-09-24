@@ -12,7 +12,9 @@ import re
 import sys
 
 MATHLIB_SRC = ".lake/packages/mathlib/Mathlib"
-BUILD_LIB = ".lake/packages/mathlib/.lake/build/lib"
+# Lake nests compiled output under an extra "lean" segment - verified
+# locally: .lake/packages/mathlib/.lake/build/lib/lean/Mathlib/**/*.olean
+BUILD_LIB = ".lake/packages/mathlib/.lake/build/lib/lean"
 IMPORT_RE = re.compile(r"^\s*(?:public\s+|private\s+|meta\s+)*import\s+(Mathlib(?:\.[A-Za-z0-9_']+)*)", re.MULTILINE)
 
 
