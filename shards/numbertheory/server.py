@@ -1,11 +1,11 @@
 # server.py (generated - edit scripts/templates/server.py.tmpl, not this file)
 # Minimal Lean checker for this shard. Accepts a Lean source snippet, writes
-# it to a scratch file inside the shard's lake workspace (so `import Mathlib.*`
-# resolves against this shard's already-built ShardImports), runs `lake env
-# lean` on it, and returns whether it type-checked.
+# it to a scratch file inside the shard's lake workspace, and runs bare
+# `lean` on it with LEAN_PATH pre-resolved at Docker build time (not `lake
+# env lean`/`lake build` - both confirmed to hang past 100s+ at runtime on
+# Render free tier, even as a no-op, despite being fast during the build).
 import os
 import subprocess
-import tempfile
 import uuid
 
 from fastapi import FastAPI
@@ -15,6 +15,11 @@ app = FastAPI()
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 SHARD_ID = os.environ.get("SHARD_ID", "unknown")
 
+with open(os.path.join(WORKSPACE, "lean_path.txt"), encoding="utf-8") as f:
+    LEAN_PATH = f.read().strip()
+
+LEAN_ENV = {**os.environ, "LEAN_PATH": LEAN_PATH}
+
 
 class CheckRequest(BaseModel):
     source: str
@@ -23,25 +28,23 @@ class CheckRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "shard": SHARD_ID}
+    return {"ok": True, "shard": SHARD_ID, "lean_path_set": bool(LEAN_PATH)}
 
 
 @app.get("/debug")
 def debug():
     probes = [
-        ("lean_version", ["lean", "--version"]),
-        ("net_github", ["curl", "-s", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", "https://github.com"]),
-        ("net_lean_releases", ["curl", "-s", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", "https://releases.lean-lang.org"]),
-        ("net_dns_github", ["getent", "hosts", "github.com"]),
-        ("env_vars", ["sh", "-c", "env | grep -E 'ELAN|LEAN|PATH' | sort"]),
-        ("lake_env_lean_version", ["lake", "env", "lean", "--version"]),
-        ("lake_build_noop", ["lake", "build", "ShardImports"]),
+        ("lean_version", ["lean", "--version"], os.environ),
+        ("net_github", ["curl", "-s", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", "https://github.com"], os.environ),
+        ("lake_env_lean_version", ["lake", "env", "lean", "--version"], os.environ),
+        ("lake_build_noop", ["lake", "build", "ShardImports"], os.environ),
+        ("lean_with_leanpath", ["lean", "--version"], LEAN_ENV),
     ]
     results = {}
-    for name, cmd in probes:
+    for name, cmd, env in probes:
         try:
             proc = subprocess.run(
-                cmd, cwd=WORKSPACE, capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL
+                cmd, cwd=WORKSPACE, capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL, env=env
             )
             results[name] = {"returncode": proc.returncode, "stdout": proc.stdout[:500], "stderr": proc.stderr[:500]}
         except subprocess.TimeoutExpired as e:
@@ -58,12 +61,13 @@ def check(req: CheckRequest):
             f.write(req.source)
 
         proc = subprocess.run(
-            ["lake", "env", "lean", fpath],
+            ["lean", fpath],
             cwd=WORKSPACE,
             capture_output=True,
             text=True,
             timeout=req.timeout_seconds,
-            stdin=subprocess.DEVNULL,  # avoid blocking on uvicorn's inherited stdin
+            stdin=subprocess.DEVNULL,
+            env=LEAN_ENV,
         )
         return {
             "ok": proc.returncode == 0,

@@ -22,6 +22,14 @@ COPY ShardImports.lean shard_modules.txt ./
 # umbrella file against what's already on disk.
 RUN lake build ShardImports
 
+# `lake env`/`lake build` re-verify the whole dependency graph on every
+# invocation - fast on Render's build machine, but confirmed to hang
+# past 100s+ on the free-tier runtime's throttled CPU even for a no-op
+# build. Bypass lake entirely at request time: capture the LEAN_PATH it
+# resolves to now (while lake is fast) and have server.py invoke bare
+# `lean` with that LEAN_PATH directly - confirmed instant either way.
+RUN lake env printenv LEAN_PATH > lean_path.txt && cat lean_path.txt
+
 # Now prune: delete every compiled module outside this shard's real
 # transitive import closure (computed from mathlib's checked-out source,
 # not guessed) so the final image only carries what this shard needs.
