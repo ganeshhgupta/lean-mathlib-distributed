@@ -20,7 +20,9 @@ IMPORT_RE = re.compile(r"^\s*import\s+(Mathlib(?:\.[A-Za-z0-9_']+)*)\s*$", re.MU
 
 # local fallback for modules newer than the last Neon seed (see
 # scripts/refresh_mathlib_files.sh + neon/seed.py to keep the DB current)
-SHARDS_JSON = json.loads((pathlib.Path(__file__).resolve().parent.parent / "shards.json").read_text())
+# NOTE: shards.json is copied alongside server.py in router/Dockerfile,
+# so it lives in the same directory inside the image - not one level up.
+SHARDS_JSON = json.loads((pathlib.Path(__file__).resolve().parent / "shards.json").read_text())
 
 
 class ProveRequest(BaseModel):
