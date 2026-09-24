@@ -26,6 +26,25 @@ def health():
     return {"ok": True, "shard": SHARD_ID}
 
 
+@app.get("/debug")
+def debug():
+    probes = [
+        ("lean_version", ["lean", "--version"]),
+        ("lake_env_lean_version", ["lake", "env", "lean", "--version"]),
+        ("lake_build_noop", ["lake", "build", "ShardImports"]),
+    ]
+    results = {}
+    for name, cmd in probes:
+        try:
+            proc = subprocess.run(
+                cmd, cwd=WORKSPACE, capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL
+            )
+            results[name] = {"returncode": proc.returncode, "stdout": proc.stdout[:500], "stderr": proc.stderr[:500]}
+        except subprocess.TimeoutExpired as e:
+            results[name] = {"timeout": True, "partial_stdout": str(e.stdout)[:500], "partial_stderr": str(e.stderr)[:500]}
+    return results
+
+
 @app.post("/check")
 def check(req: CheckRequest):
     fname = f"scratch_{uuid.uuid4().hex}.lean"
