@@ -40,6 +40,7 @@ def check(req: CheckRequest):
             capture_output=True,
             text=True,
             timeout=req.timeout_seconds,
+            stdin=subprocess.DEVNULL,  # avoid blocking on uvicorn's inherited stdin
         )
         return {
             "ok": proc.returncode == 0,
@@ -48,8 +49,14 @@ def check(req: CheckRequest):
             "stderr": proc.stderr,
             "returncode": proc.returncode,
         }
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "shard": SHARD_ID, "error": "timeout"}
+    except subprocess.TimeoutExpired as e:
+        return {
+            "ok": False,
+            "shard": SHARD_ID,
+            "error": "timeout",
+            "partial_stdout": (e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else e.stdout,
+            "partial_stderr": (e.stderr or b"").decode("utf-8", "replace") if isinstance(e.stderr, bytes) else e.stderr,
+        }
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)
