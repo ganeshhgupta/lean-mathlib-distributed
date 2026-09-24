@@ -16,12 +16,17 @@ RUN lake update
 
 COPY ShardImports.lean shard_modules.txt ./
 
-# mathlib publishes a precompiled .olean cache per module; fetch only the
-# modules this shard actually imports instead of the whole ~12GB library.
-# (documented as `lake exe cache get <ModuleName> ...` in mathlib4's README)
-RUN xargs -a shard_modules.txt lake exe cache get
-
+# `lake update`'s post-update hook already fetched mathlib's FULL .olean
+# cache above (confirmed: it ignores which modules this shard needs), so
+# there is nothing selective left to do here - just build this shard's
+# umbrella file against what's already on disk.
 RUN lake build ShardImports
+
+# Now prune: delete every compiled module outside this shard's real
+# transitive import closure (computed from mathlib's checked-out source,
+# not guessed) so the final image only carries what this shard needs.
+COPY prune_oleans.py ./
+RUN python3 prune_oleans.py
 
 COPY server.py requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt

@@ -57,20 +57,49 @@ design conversation this repo came from. Workaround if you hit this often:
 add a 6th "union" shard that imports two specific shards' namespaces
 together - expensive, so only do it for a combination you actually need.
 
-## Two things to verify before you trust this in production
+## What's actually verified vs. still open
 
-1. **Selective cache fetch.** `Dockerfile` runs
-   `lake exe cache get <shard's module list>` instead of a bare
-   `lake exe cache get`, on the documented assumption that mathlib's cache
-   tool only downloads the `.olean`s needed for the given modules (and
-   their transitive deps) rather than the entire library. Watch the first
-   Render build log's download size to confirm - if it pulls close to the
-   full cache regardless, the shards stop saving anything and this
-   architecture needs rethinking (e.g. a paid Render disk instead of free).
-2. **Runtime RAM.** Free Render web services have 512MB RAM. Even a
-   trimmed shard's compiled environment might not fit when Lean loads it
-   to check a proof - this hasn't been load-tested. If `/check` OOMs, the
-   fix is either a smaller shard or a paid Render plan for that shard only.
+**Confirmed false: selective cache fetch.** The first real Render build
+logs showed `lake update` triggers mathlib4's own post-update hook, which
+runs an *unconditional full-library* `lake exe cache get` (all ~8939
+files) regardless of what the downstream project imports. Passing a
+module list to `cache get` afterward (the original plan) is both
+pointless - the full cache is already on disk - and wrong syntax (the
+cache CLI rejects dotted module names). So every shard downloads the same
+~8939-file cache during build; sharding buys nothing on build-time
+bandwidth.
+
+**What sharding actually buys: post-build pruning.** Since Lean only
+loads `.olean`s that are transitively imported by the file it's checking
+(not "everything present on disk"), pruning doesn't reduce runtime RAM
+per request - but it does reduce the final image's disk footprint, which
+is the real free-tier constraint for fitting ~12GB of mathlib anywhere.
+`prune_oleans.py` runs after `lake build ShardImports`: it parses the
+*real* import graph from mathlib's checked-out `.lean` source (already in
+the build context - no separate tool needed) and deletes every compiled
+module outside the shard's true transitive closure. Measured against the
+actual mathlib4 import graph (8559 modules, ~26800 import edges):
+
+| shard | raw namespace modules | real transitive closure | % of full mathlib |
+|---|---|---|---|
+| algebra | 4332 | 5829 | 68.1% |
+| analysis | 2879 | 5067 | 59.2% |
+| numbertheory | 2047 | 5086 | 59.4% |
+| topology | 2747 | 5655 | 66.1% |
+| categorytheory | 2766 | 4570 | 53.4% |
+
+Two things worth noting: (1) the transitive closure is always bigger than
+the raw per-namespace module count - mathlib is deeply interconnected, so
+even a "small" shard still pulls in over half the library; (2) this is a
+disk-only win. If Render's constraint turns out to be RAM rather than
+image size, pruning doesn't help at all, and there's no way to know which
+constraint actually binds without deploying.
+
+**Still unverified: runtime RAM.** Free Render web services have 512MB
+RAM. Even a pruned shard's compiled environment might not fit when Lean
+loads it to check a proof that touches a lot of the closure - this hasn't
+been load-tested. If `/check` OOMs, pruning doesn't fix it (see above);
+the fix is a smaller shard or a paid Render plan for that shard.
 
 ## Deploy
 
@@ -110,10 +139,10 @@ python3 scripts/generate_shards.py # regenerate shards/*/{lakefile.toml,Dockerfi
 python3 neon/build_seed_sql.py     # regenerate neon/seed.sql from the same data
 ```
 
-If you want finer-grained shards than "by top-level namespace" (e.g. actual
-`.olean` size and import-edge based partitioning), don't hand-roll a
-partitioner - mathlib4 already depends on
-[`leanprover-community/importGraph`](https://github.com/leanprover-community/importGraph),
-which is the real tool for extracting the import DAG. That's a local,
-`lake build`-requiring exercise (needs the full environment compiled once)
-and was out of scope for this pass.
+The namespace groupings in `shards.json` only decide the *seed* modules
+per shard (and hence what `router/server.py` accepts). The actual pruning
+in `prune_oleans.py` always works off the real transitive closure, parsed
+from mathlib's own source at build time - so shrinking the namespace
+groups further would shrink the closures too, at the cost of more
+services and more duplicated build-minute spend on the shared full-cache
+download every shard pays regardless.

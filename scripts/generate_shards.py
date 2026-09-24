@@ -65,6 +65,9 @@ def main():
             (TEMPLATES / "server.py.tmpl").read_text(encoding="utf-8"), encoding="utf-8"
         )
         (shard_dir / "requirements.txt").write_text("fastapi\nuvicorn[standard]\n", encoding="utf-8")
+        (shard_dir / "prune_oleans.py").write_text(
+            (TEMPLATES / "prune_oleans.py").read_text(encoding="utf-8"), encoding="utf-8"
+        )
 
         report.append((sid, len(mods)))
 
