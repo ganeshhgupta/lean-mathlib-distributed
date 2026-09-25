@@ -51,11 +51,19 @@ def main():
     lines.append("ON CONFLICT (id) DO UPDATE SET render_url = EXCLUDED.render_url, namespaces = EXCLUDED.namespaces;")
     lines.append("")
 
+    # Only seed modules that live in a shard's OWN namespaces here. A module
+    # covered only by common_ns (e.g. Mathlib.Data.Nat.Prime.Basic) is valid
+    # in every shard - if it were included per-shard using common_ns + own
+    # namespaces, the last shard processed would silently win for every
+    # common module (confirmed bug: routed a pure Mathlib.Data.* file to
+    # categorytheory - one of the slower shards - instead of treating it as
+    # shard-agnostic). Leaving common-only modules OUT of this table makes
+    # router/server.py's fallback_shard() correctly resolve them to
+    # "__common_only__" instead.
     assigned = {}
     for shard in cfg["shards"]:
-        ns = common_ns + shard["namespaces"]
         for m in all_mods:
-            if matches(m, ns):
+            if matches(m, shard["namespaces"]):
                 assigned[m] = shard["id"]
 
     lines.append("INSERT INTO modules (name, shard_id) VALUES")

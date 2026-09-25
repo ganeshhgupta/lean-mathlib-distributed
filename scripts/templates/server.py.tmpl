@@ -24,11 +24,12 @@ LEAN_ENV = {**os.environ, "LEAN_PATH": LEAN_PATH}
 class CheckRequest(BaseModel):
     source: str
     # Confirmed on Render free tier: even a trivial goal against a single
-    # real mathlib import takes ~2m30s (CPU-throttled, not RAM - lean
-    # itself is fine, elaboration is just slow on shared free-tier CPU).
-    # 280s is close to the ceiling we've confirmed Render's own proxy lets
-    # through; real proofs may still need more and simply won't fit.
-    timeout_seconds: int = 280
+    # real mathlib import takes 70s-5min depending on shard/import weight
+    # (CPU-throttled, not RAM - lean itself is fine, elaboration is just
+    # slow on shared free-tier CPU). 350s gives headroom past the slowest
+    # shard's confirmed ~295s trivial-case latency; real proofs may need
+    # much more and simply won't fit an HTTP request/response cycle.
+    timeout_seconds: int = 350
 
 
 @app.get("/health")
