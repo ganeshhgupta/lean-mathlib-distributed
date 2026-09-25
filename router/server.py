@@ -24,6 +24,11 @@ IMPORT_RE = re.compile(r"^\s*import\s+(Mathlib(?:\.[A-Za-z0-9_']+)*)\s*$", re.MU
 # so it lives in the same directory inside the image - not one level up.
 SHARDS_JSON = json.loads((pathlib.Path(__file__).resolve().parent / "shards.json").read_text())
 
+# Picked for a common-only file, where any shard would do: empirically the
+# fastest/most consistent shard in testing (~70-150s for a trivial goal,
+# vs. ~280-295s for categorytheory).
+DEFAULT_COMMON_SHARD = "numbertheory"
+
 
 class ProveRequest(BaseModel):
     source: str
@@ -85,7 +90,11 @@ def check(req: ProveRequest):
     if unresolved:
         return {"ok": False, "error": "unresolved imports, not present in any shard", "unresolved": unresolved}
     if len(shards) == 0:
-        return {"ok": False, "error": "all imports resolved to the common base only; any shard can serve this - pick one explicitly via /check/{shard_id}"}
+        # Common-only file (e.g. plain Nat/Data basics) - every shard
+        # carries the common base, so any of them can serve it. Most real
+        # proofs land here; forcing explicit shard selection for this case
+        # was pure friction, not a real ambiguity.
+        return _forward(DEFAULT_COMMON_SHARD, req)
     if len(shards) > 1:
         return {
             "ok": False,

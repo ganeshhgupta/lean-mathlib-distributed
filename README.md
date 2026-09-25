@@ -48,14 +48,20 @@ ratio reasonable.
 ## Multi-shard files (the real limitation)
 
 `import Mathlib` (the whole library) or a file whose imports span more than
-one shard **cannot** be served - `router/server.py` rejects it with the
-list of shards it would need. This is a fundamental constraint, not a bug:
-Lean resolves imports against its local module search path, so there's no
-way for `shard-analysis` to transparently serve a declaration that only
-`shard-algebra` has compiled. See the "Multi-shard files" discussion in the
-design conversation this repo came from. Workaround if you hit this often:
-add a 6th "union" shard that imports two specific shards' namespaces
-together - expensive, so only do it for a combination you actually need.
+one shard's *own* namespaces **cannot** be served - `router/server.py`
+rejects it with the list of shards it would need. This is a fundamental
+constraint, not a bug: Lean resolves imports against its local module
+search path, so there's no way for `shard-analysis` to transparently
+serve a declaration that only `shard-algebra` has compiled. Workaround if
+you hit this often: add a 6th "union" shard that imports two specific
+shards' namespaces together - expensive, so only do it for a combination
+you actually need.
+
+A file whose imports are entirely within the common base (e.g. plain
+`Mathlib.Data.Nat.*` basics, no shard-specific namespace) is **not** an
+ambiguity - every shard carries the common base, so the router picks
+`DEFAULT_COMMON_SHARD` (`numbertheory`, the fastest/most consistent shard
+in testing) automatically rather than making the caller choose.
 
 ## What's actually verified vs. still open
 
