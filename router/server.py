@@ -117,7 +117,23 @@ def _forward(shard_id: str, req: ProveRequest):
     if row is None:
         return {"ok": False, "error": f"unknown shard '{shard_id}'"}
     (url,) = row
-    resp = httpx.post(f"{url}/check", json=req.model_dump(), timeout=req.timeout_seconds + 10)
-    body = resp.json()
+    try:
+        resp = httpx.post(f"{url}/check", json=req.model_dump(), timeout=req.timeout_seconds + 10)
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "timeout", "routed_to": shard_id}
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": f"could not reach shard: {e}", "routed_to": shard_id}
+
+    try:
+        body = resp.json()
+    except ValueError:
+        # Shard returned a non-JSON response (e.g. a cold-start/proxy error
+        # page) instead of crashing the whole router on resp.json().
+        return {
+            "ok": False,
+            "error": f"shard returned non-JSON response (status {resp.status_code})",
+            "shard_response_snippet": resp.text[:300],
+            "routed_to": shard_id,
+        }
     body["routed_to"] = shard_id
     return body
