@@ -26,10 +26,12 @@ class CheckRequest(BaseModel):
     # Confirmed on Render free tier: even a trivial goal against a single
     # real mathlib import takes 70s-5min depending on shard/import weight
     # (CPU-throttled, not RAM - lean itself is fine, elaboration is just
-    # slow on shared free-tier CPU). 350s gives headroom past the slowest
-    # shard's confirmed ~295s trivial-case latency; real proofs may need
-    # much more and simply won't fit an HTTP request/response cycle.
-    timeout_seconds: int = 350
+    # slow on shared free-tier CPU). Confirmed separately: something
+    # upstream of this app (Render's edge/Cloudflare) hard-cuts requests
+    # around 300-350s regardless of what timeout_seconds is set to - so
+    # 280 stays safely under that wall rather than requesting more time
+    # the platform won't honor anyway.
+    timeout_seconds: int = 280
 
 
 @app.get("/health")

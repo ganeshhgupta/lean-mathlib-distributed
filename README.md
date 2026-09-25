@@ -101,11 +101,35 @@ disk-only win. If Render's constraint turns out to be RAM rather than
 image size, pruning doesn't help at all, and there's no way to know which
 constraint actually binds without deploying.
 
-**Still unverified: runtime RAM.** Free Render web services have 512MB
-RAM. Even a pruned shard's compiled environment might not fit when Lean
-loads it to check a proof that touches a lot of the closure - this hasn't
-been load-tested. If `/check` OOMs, pruning doesn't fix it (see above);
-the fix is a smaller shard or a paid Render plan for that shard.
+**Confirmed: runtime RAM is fine, CPU is the real bottleneck - and it's
+severe.** Load-tested against all 5 live shards. `lean` itself loads and
+elaborates correctly (RAM was never the issue). But `lake env`/`lake
+build` re-verify the whole dependency graph on *every* invocation - fast
+on Render's build machine, confirmed to hang past 100s+ at runtime on the
+free tier's throttled CPU even for a no-op build. Fix: bypass lake
+entirely at request time - `LEAN_PATH` is captured once during the Docker
+build (while lake is still fast) into `lean_path.txt`, and `server.py`
+invokes bare `lean <file>` with that env var set directly.
+
+Even with that fix, elaborating a *single trivial goal* against one real
+mathlib import measured **70 seconds to 5 minutes**, varying by shard and
+by which specific file gets pulled in (e.g. `Analysis.SpecialFunctions.
+Pow.Real` alone took over 7 minutes - real/exp/log machinery is
+inherently heavy, independent of shard size). `numbertheory` was
+consistently the fastest shard in testing and is the router's default
+for common-only files.
+
+**Hard ceiling, not configurable:** requests were repeatedly cut off
+around 300-350s regardless of the `timeout_seconds` passed in the
+request body (tested up to 600s) - this is enforced upstream of the
+application (Render's edge / Cloudflare), not by anything in this repo.
+Practically: this architecture can only serve proofs that elaborate
+within about 5 minutes. Anything genuinely complex enough to exceed that
+will fail with an HTTP timeout no matter how the server-side timeout is
+tuned - a synchronous request/response API is the wrong shape for
+"complex" proofs on this platform. An async job-submission API (submit,
+poll, fetch result) would be required to go further, and wasn't built
+here.
 
 ## Deploy
 

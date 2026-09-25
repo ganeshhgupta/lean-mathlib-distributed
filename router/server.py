@@ -32,10 +32,10 @@ DEFAULT_COMMON_SHARD = "numbertheory"
 
 class ProveRequest(BaseModel):
     source: str
-    # Confirmed on Render free tier: even a trivial goal against a single
-    # real mathlib import takes ~2m30s (CPU-throttled). Matches the shard
-    # default in scripts/templates/server.py.tmpl.
-    timeout_seconds: int = 350
+    # Matches the shard default in scripts/templates/server.py.tmpl - see
+    # that file's comment for the confirmed platform ceiling (~300-350s,
+    # enforced upstream regardless of this value) this stays under.
+    timeout_seconds: int = 280
 
 
 def extract_imports(source: str) -> list[str]:
