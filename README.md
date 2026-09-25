@@ -158,6 +158,30 @@ curl -X POST https://lean-mathlib-router.onrender.com/check \
   }'
 ```
 
+### For anything that might take more than ~5 minutes: /submit + /result
+
+`/check` shares Render's own edge timeout (~300-350s, confirmed by testing
+up to 600s - the platform cuts the connection regardless of what
+`timeout_seconds` is set to). For a genuinely complex proof, submit it as
+a background job instead - the actual `lean` subprocess then runs inside
+the shard's own process with no outbound HTTP call in the long-running
+part, so nothing enforces that ceiling on it:
+
+```bash
+job=$(curl -s -X POST https://lean-mathlib-router.onrender.com/submit \
+  -H 'Content-Type: application/json' \
+  -d '{"source": "import Mathlib.Algebra.Group.Basic\n\n...a long proof..."}')
+echo "$job"   # {"job_id": "...", "shard": "algebra", "status": "pending", "poll_url": "/result/algebra/..."}
+
+# poll until status is "done" (or "error")
+curl -s https://lean-mathlib-router.onrender.com/result/algebra/<job_id>
+```
+
+Jobs live in the shard's own process memory (each service runs a single
+worker, so no cross-worker visibility problem) - they don't survive a
+restart, and there's no cleanup/expiry implemented, so this is meant for
+interactive use, not a production job queue.
+
 ## Regenerating shards
 
 Everything under `shards/*` and `neon/seed.sql` is generated, not hand

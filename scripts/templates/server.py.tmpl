@@ -4,11 +4,21 @@
 # `lean` on it with LEAN_PATH pre-resolved at Docker build time (not `lake
 # env lean`/`lake build` - both confirmed to hang past 100s+ at runtime on
 # Render free tier, even as a no-op, despite being fast during the build).
+#
+# /check is synchronous and bounded by Render's own edge timeout (~300-350s,
+# confirmed non-configurable - it cuts the connection regardless of what
+# timeout_seconds is set to). /submit + /result run the same check as a
+# background job *inside this process* via subprocess, with no outbound
+# HTTP call involved in the long-running part - only the fast submit/poll
+# calls cross the network, so this is how a proof that genuinely needs more
+# than ~5 minutes gets checked at all on this platform.
 import os
 import subprocess
+import threading
+import time
 import uuid
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -20,18 +30,65 @@ with open(os.path.join(WORKSPACE, "lean_path.txt"), encoding="utf-8") as f:
 
 LEAN_ENV = {**os.environ, "LEAN_PATH": LEAN_PATH}
 
+# Single uvicorn worker on this service (Render sets WEB_CONCURRENCY=1), so
+# a process-local dict is safe - no cross-worker visibility problem. Jobs
+# don't need to survive a restart for this to be useful.
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+
 
 class CheckRequest(BaseModel):
     source: str
-    # Confirmed on Render free tier: even a trivial goal against a single
-    # real mathlib import takes 70s-5min depending on shard/import weight
-    # (CPU-throttled, not RAM - lean itself is fine, elaboration is just
-    # slow on shared free-tier CPU). Confirmed separately: something
-    # upstream of this app (Render's edge/Cloudflare) hard-cuts requests
-    # around 300-350s regardless of what timeout_seconds is set to - so
-    # 280 stays safely under that wall rather than requesting more time
-    # the platform won't honor anyway.
+    # See module docstring: this ceiling is real and non-configurable for
+    # /check. Only matters for /check's own subprocess kill timer here.
     timeout_seconds: int = 280
+
+
+def _run_lean(source: str, timeout_seconds: int) -> dict:
+    fname = f"scratch_{uuid.uuid4().hex}.lean"
+    fpath = os.path.join(WORKSPACE, fname)
+    try:
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(source)
+
+        proc = subprocess.run(
+            ["lean", fpath],
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            stdin=subprocess.DEVNULL,
+            env=LEAN_ENV,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "shard": SHARD_ID,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+            "returncode": proc.returncode,
+        }
+    except subprocess.TimeoutExpired as e:
+        return {
+            "ok": False,
+            "shard": SHARD_ID,
+            "error": "timeout",
+            "partial_stdout": (e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else e.stdout,
+            "partial_stderr": (e.stderr or b"").decode("utf-8", "replace") if isinstance(e.stderr, bytes) else e.stderr,
+        }
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+
+def _run_job(job_id: str, source: str, timeout_seconds: int):
+    with JOBS_LOCK:
+        JOBS[job_id]["status"] = "running"
+        JOBS[job_id]["started_at"] = time.time()
+    result = _run_lean(source, timeout_seconds)
+    with JOBS_LOCK:
+        JOBS[job_id]["status"] = "done"
+        JOBS[job_id]["result"] = result
+        JOBS[job_id]["finished_at"] = time.time()
 
 
 @app.get("/health")
@@ -62,36 +119,28 @@ def debug():
 
 @app.post("/check")
 def check(req: CheckRequest):
-    fname = f"scratch_{uuid.uuid4().hex}.lean"
-    fpath = os.path.join(WORKSPACE, fname)
-    try:
-        with open(fpath, "w", encoding="utf-8") as f:
-            f.write(req.source)
+    """Synchronous check - bounded by Render's own edge timeout. Fine for
+    anything that elaborates in well under ~5 minutes; use /submit for
+    anything that might not."""
+    return _run_lean(req.source, req.timeout_seconds)
 
-        proc = subprocess.run(
-            ["lean", fpath],
-            cwd=WORKSPACE,
-            capture_output=True,
-            text=True,
-            timeout=req.timeout_seconds,
-            stdin=subprocess.DEVNULL,
-            env=LEAN_ENV,
-        )
-        return {
-            "ok": proc.returncode == 0,
-            "shard": SHARD_ID,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-            "returncode": proc.returncode,
-        }
-    except subprocess.TimeoutExpired as e:
-        return {
-            "ok": False,
-            "shard": SHARD_ID,
-            "error": "timeout",
-            "partial_stdout": (e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else e.stdout,
-            "partial_stderr": (e.stderr or b"").decode("utf-8", "replace") if isinstance(e.stderr, bytes) else e.stderr,
-        }
-    finally:
-        if os.path.exists(fpath):
-            os.remove(fpath)
+
+@app.post("/submit")
+def submit(req: CheckRequest, background_tasks: BackgroundTasks):
+    job_id = uuid.uuid4().hex
+    with JOBS_LOCK:
+        JOBS[job_id] = {"status": "pending", "shard": SHARD_ID, "created_at": time.time()}
+    # A plain (non-async) function passed to BackgroundTasks runs in
+    # Starlette's threadpool, not the event loop - so this doesn't block
+    # other requests (like polls for other jobs) while it runs.
+    background_tasks.add_task(_run_job, job_id, req.source, max(req.timeout_seconds, 1800))
+    return {"job_id": job_id, "shard": SHARD_ID, "status": "pending"}
+
+
+@app.get("/result/{job_id}")
+def result(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown job_id (or this shard restarted since it was submitted)")
+    return job
